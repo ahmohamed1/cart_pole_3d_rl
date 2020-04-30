@@ -29,32 +29,31 @@ reg = register(
 class CartPole3DEnv(gym.Env): #class inherit from gym.Env.
 
     def __init__(self): # We initialize and define init function.
-
         number_actions = rospy.get_param('/cart_pole_3d/n_actions')
         self.action_space = spaces.Discrete(number_actions)
 
         self._seed()
 
         # get configuration parameters
-        self.init_roll_vel = rospy.get_param('/my_moving_cube/init_roll_vel')
+        self.init_roll_vel = rospy.get_param('/cart_pole_3d/init_roll_vel')
 
         # Actions
-        self.roll_speed_fixed_value = rospy.get_param('/my_moving_cube/roll_speed_fixed_value')
-        self.roll_speed_increment_value = rospy.get_param('/my_moving_cube/roll_speed_increment_value')
+        self.cart_speed_fixed_value = rospy.get_param('/cart_pole_3d/cart_speed_fixed_value')
+        self.cart_speed_increment_value = rospy.get_param('/cart_pole_3d/cart_speed_increment_value')
 
         self.start_point = Point()
-        self.start_point.x = rospy.get_param("/my_moving_cube/init_cube_pose/x")
-        self.start_point.y = rospy.get_param("/my_moving_cube/init_cube_pose/y")
-        self.start_point.z = rospy.get_param("/my_moving_cube/init_cube_pose/z")
+        self.start_point.x = rospy.get_param("/cart_pole_3d/init_cube_pose/x")
+        self.start_point.y = rospy.get_param("/cart_pole_3d/init_cube_pose/y")
+        self.start_point.z = rospy.get_param("/cart_pole_3d/init_cube_pose/z")
 
         # Done
-        self.max_pitch_angle = rospy.get_param('/my_moving_cube/max_pitch_angle')
+        self.max_pitch_angle = rospy.get_param('/cart_pole_3d/max_angle')
 
         # Rewards
-        self.move_distance_reward_weight = rospy.get_param("/my_moving_cube/move_distance_reward_weight")
-        self.y_linear_speed_reward_weight = rospy.get_param("/my_moving_cube/y_linear_speed_reward_weight")
-        self.y_axis_angle_reward_weight = rospy.get_param("/my_moving_cube/y_axis_angle_reward_weight")
-        self.end_episode_points = rospy.get_param("/my_moving_cube/end_episode_points")
+        self.move_distance_reward_weight = rospy.get_param("/cart_pole_3d/move_distance_reward_weight")
+        self.y_linear_speed_reward_weight = rospy.get_param("/cart_pole_3d/y_linear_speed_reward_weight")
+        self.y_axis_angle_reward_weight = rospy.get_param("/cart_pole_3d/y_axis_angle_reward_weight")
+        self.end_episode_points = rospy.get_param("/cart_pole_3d/end_episode_points")
 
         # stablishes connection with simulator
         self.gazebo = GazeboConnection()
