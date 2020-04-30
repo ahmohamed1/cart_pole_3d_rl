@@ -22,16 +22,16 @@ import old_way_moving_cube_env
 
 if __name__ == '__main__':
 
-    rospy.init_node('movingcube_gym', anonymous=True, log_level=rospy.WARN)
+    rospy.init_node('moving_cart_gym', anonymous=True, log_level=rospy.WARN)
 
     # Create the Gym environment
-    env = gym.make('MyOldMovingCube-v0')
+    env = gym.make('MyOldMovingCart-v0')
     rospy.loginfo("Gym environment done")
 
     # Set the logging system
     # Where we define all of output training to stored.
     rospack = rospkg.RosPack()
-    pkg_path = rospack.get_path('my_moving_cube_training_pkg')
+    pkg_path = rospack.get_path('cart_pole_3d_training_pkg')
     outdir = pkg_path + '/training_results'
     env = wrappers.Monitor(env, outdir, force=True)
     rospy.loginfo("Monitor Wrapper started")
@@ -42,14 +42,14 @@ if __name__ == '__main__':
     # Parameters are stored in a yaml file inside the config directory
     # They are loaded at runtime by the launch file
     # Importing the learning parameters.
-    Alpha = rospy.get_param("/my_moving_cube/alpha")
-    Epsilon = rospy.get_param("/my_moving_cube/epsilon")
-    Gamma = rospy.get_param("/my_moving_cube/gamma")
-    epsilon_discount = rospy.get_param("/my_moving_cube/epsilon_discount")
-    nepisodes = rospy.get_param("/my_moving_cube/nepisodes")
-    nsteps = rospy.get_param("/my_moving_cube/nsteps")
+    Alpha = rospy.get_param("/cart_pole_3d/alpha")
+    Epsilon = rospy.get_param("/cart_pole_3d/epsilon")
+    Gamma = rospy.get_param("/cart_pole_3d/gamma")
+    epsilon_discount = rospy.get_param("/cart_pole_3d/epsilon_discount")
+    nepisodes = rospy.get_param("/cart_pole_3d/nepisodes")
+    nsteps = rospy.get_param("/cart_pole_3d/nsteps")
 
-    running_step = rospy.get_param("/my_moving_cube/running_step")
+    running_step = rospy.get_param("/cart_pole_3d/running_step")
 
     # Initialises the algorithm that we are going to use for learning
     qlearn = qlearn.QLearn(actions=range(env.action_space.n),
@@ -62,7 +62,6 @@ if __name__ == '__main__':
     # Starts the main training loop: the one about the episodes to do
     for x in range(nepisodes):
         rospy.logdebug("############### START EPISODE=>" + str(x))
-
         cumulated_reward = 0
         done = False
         if qlearn.epsilon > 0.05:
@@ -93,7 +92,7 @@ if __name__ == '__main__':
             rospy.logwarn("############### state we were=>" + str(state))
             rospy.logwarn("############### action that we took=>" + str(action))
             rospy.logwarn("############### reward that action gave=>" + str(reward))
-            rospy.logwarn("############### State in which we will start nect step=>" + str(nextState))
+            rospy.logwarn("############### State in which we will start next step=>" + str(nextState))
             qlearn.learn(state, action, reward, nextState)
 
             if not (done):
