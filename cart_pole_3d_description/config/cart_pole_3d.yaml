@@ -9,9 +9,14 @@ cart_pole_3d:
   joint_state_controller:
     type: joint_state_controller/JointStateController
     publish_rate: 30
+  # Effort Controllers ---------------------------------------
+  pole_joint_velocity_controller:
+    type: effort_controllers/JointVelocityController
+    joint: cart_pole_joint
+    pid: {p: 1.0, i: 0.0, d: 0.0}
 
   # Effort Controllers ---------------------------------------
   cart_joint_velocity_controller:
     type: effort_controllers/JointVelocityController
     joint: base_cart_joint
-    pid: {p: 1.0, i: 0.0, d: 0.0}
+    pid: {p: 100.0, i: 0.0, d: 0.0}

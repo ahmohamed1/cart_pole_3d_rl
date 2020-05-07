@@ -16,7 +16,8 @@
   <node name="controller_spawner" pkg="controller_manager" type="spawner" respawn="false"
         output="screen" args="--namespace=/cart_pole_3d
                               joint_state_controller
-                              cart_joint_velocity_controller">
+                              cart_joint_velocity_controller
+                              pole_joint_velocity_controller">
   </node>
 
 </launch>

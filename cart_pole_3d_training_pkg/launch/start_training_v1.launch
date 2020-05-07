@@ -1,0 +1,5 @@
+<launch>
+    <rosparam command="load" file="$(find cart_pole_3d_training_pkg)/config/cart_pole_3d.yaml" />
+    <!-- Launch the training system -->
+    <node pkg="cart_pole_3d_training_pkg" name="cart_pole_3d_gym" type="start_training_v1.py" output="screen"/>
+</launch>

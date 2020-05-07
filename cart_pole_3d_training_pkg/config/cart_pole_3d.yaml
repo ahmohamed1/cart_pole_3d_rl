@@ -1,0 +1,38 @@
+cart_pole_3d: #namespace
+
+    running_step: 0.04 # amount of time the control will be executed
+    pos_step: 0.016     # increment in position for each command
+
+    #qlearn parameters
+    alpha: 0.1
+    gamma: 0.7
+    epsilon: 0.9
+    epsilon_discount: 0.999
+    nepisodes: 500
+    nsteps: 1000
+    number_splits: 10 #set to change the number of state splits for the continuous problem and also the number of env_variable splits
+
+    running_step: 0.06 # Time for each step
+    wait_time: 0.1 # Time to wait in the reset phases
+    init_pos: 0.0 # Position in which the base will start
+
+    n_actions: 2 # We have 3 actions
+
+    speed_step: 1.0 # Time to wait in the reset phases
+
+    init_cart_vel: 0.0 # Initial speed of the Roll Disk
+
+    cart_speed_fixed_value: 5.0 # Speed at which it will move forwards or backwards
+
+    max_distance: 0.7 # Maximum distance allowed for the cart to travel
+    max_angle: 0.20944 # maximum angle allowed for the pole
+    min_angle: -0.20944 # minimum angle allowed for the pole
+
+    init_cube_pose:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+
+    end_episode_points: 100 # Points given when ending an episode
+
+    keep_pole_up_reward: 10

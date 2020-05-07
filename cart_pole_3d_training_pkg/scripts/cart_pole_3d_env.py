@@ -7,7 +7,7 @@ import copy
 from gym import utils, spaces
 import numpy
 from std_msgs.msg import Float64
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import JointState, Imu
 from rosgraph_msgs.msg import Clock
 from nav_msgs.msg import Odometry
 from gazebo_connection import GazeboConnection
@@ -21,7 +21,7 @@ from tf.transformations import euler_from_quaternion
 
 reg = register(
     id='CartPole3D-v0',
-    entry_point='cart_pole_3d_env:CartPole3D',
+    entry_point='cart_pole_3d_env:CartPole3DEnv',
     timestep_limit=1000,
 )
 
@@ -31,15 +31,15 @@ class CartPole3DEnv(gym.Env): #class inherit from gym.Env.
     def __init__(self): # We initialize and define init function.
         number_actions = rospy.get_param('/cart_pole_3d/n_actions')
         self.action_space = spaces.Discrete(number_actions)
+        self.state_size = 3
 
         self._seed()
 
         # get configuration parameters
-        self.init_roll_vel = rospy.get_param('/cart_pole_3d/init_roll_vel')
+        self.init_cart_vel = rospy.get_param('/cart_pole_3d/init_cart_vel')
 
         # Actions
         self.cart_speed_fixed_value = rospy.get_param('/cart_pole_3d/cart_speed_fixed_value')
-        self.cart_speed_increment_value = rospy.get_param('/cart_pole_3d/cart_speed_increment_value')
 
         self.start_point = Point()
         self.start_point.x = rospy.get_param("/cart_pole_3d/init_cube_pose/x")
@@ -47,20 +47,19 @@ class CartPole3DEnv(gym.Env): #class inherit from gym.Env.
         self.start_point.z = rospy.get_param("/cart_pole_3d/init_cube_pose/z")
 
         # Done
-        self.max_pitch_angle = rospy.get_param('/cart_pole_3d/max_angle')
+        self.max_angle = rospy.get_param('/cart_pole_3d/max_angle')
+        self.max_distance = rospy.get_param('/cart_pole_3d/max_distance')
 
         # Rewards
-        self.move_distance_reward_weight = rospy.get_param("/cart_pole_3d/move_distance_reward_weight")
-        self.y_linear_speed_reward_weight = rospy.get_param("/cart_pole_3d/y_linear_speed_reward_weight")
-        self.y_axis_angle_reward_weight = rospy.get_param("/cart_pole_3d/y_axis_angle_reward_weight")
+        self.keep_pole_up_reward = rospy.get_param("/cart_pole_3d/keep_pole_up_reward")
         self.end_episode_points = rospy.get_param("/cart_pole_3d/end_episode_points")
 
         # stablishes connection with simulator
         self.gazebo = GazeboConnection()
         self.controllers_list = ['joint_state_controller',
-                                 'inertia_wheel_roll_joint_velocity_controller'
+                                 'cart_joint_velocity_controller'
                                  ]
-        self.controllers_object = ControllersConnection(namespace="my_moving_cube",
+        self.controllers_object = ControllersConnection(namespace="cart_pole_3d",
                                                         controllers_list=self.controllers_list)
         """
         Namespace of robot is the namespace in front of your controller.
@@ -73,14 +72,14 @@ class CartPole3DEnv(gym.Env): #class inherit from gym.Env.
         self.controllers_object.reset_controllers()
         self.check_all_sensors_ready()
 
-        rospy.Subscriber("/my_moving_cube/joint_states", JointState, self.joints_callback)
-        rospy.Subscriber("/my_moving_cube/odom", Odometry, self.odom_callback)
+        rospy.Subscriber("/cart_pole_3d/joint_states", JointState, self.joints_callback)
+        rospy.Subscriber("/cart_pole_3d/odom", Odometry, self.odom_callback)
+        # rospy.Subscriber("/cart_pole_3d/imu", Imu, self.imu_callback)
 
-        self._roll_vel_pub = rospy.Publisher('/my_moving_cube/inertia_wheel_roll_joint_velocity_controller/command',
+        self._cart_velocity_publisher = rospy.Publisher('/cart_pole_3d/cart_joint_velocity_controller/command',
                                              Float64, queue_size=1)
 
         self.check_publishers_connection()
-
         self.gazebo.pauseSim()
 
     def _seed(self, seed=None):  # overriden function
@@ -137,17 +136,24 @@ class CartPole3DEnv(gym.Env): #class inherit from gym.Env.
         """
         self.total_distance_moved = 0.0
         self.current_y_distance = self.get_y_dir_distance_from_start_point(self.start_point)
-        self.roll_turn_speed = rospy.get_param('/my_moving_cube/init_roll_vel')
+        self.cart_current_speed = rospy.get_param('/cart_pole_3d/init_cart_vel')
 
     def _is_done(self, observations):
 
-        pitch_angle = observations[3]
+        # MAximum distance to travel permited in meters from origin
+        max_upper_distance = self.max_distance
+        max_lower_distance = -self.max_distance
+        max_angle_allowed = self.max_angle
 
-        if abs(pitch_angle) > self.max_pitch_angle:
-            rospy.logerr("WRONG Cube Pitch Orientation==>" + str(pitch_angle))
+        if (observations[1] > max_upper_distance or observations[1] < max_lower_distance):
+            rospy.logerr("Cart Too Far==>" + str(observations[1]))
+            done = True
+        elif(observations[2] > max_angle_allowed or observations[2] < -max_angle_allowed):
+            rospy.logerr("Pole excceed allowed angle =>" + str(observations[2]))
             done = True
         else:
-            rospy.logdebug("Cube Pitch Orientation Ok==>" + str(pitch_angle))
+            # rospy.loginfo("Cart NOT Too Far==>" + str(observations[1]))
+            # rospy.loginfo("Pole still in range==>" + str(observations[2]))
             done = False
 
         return done
@@ -155,26 +161,19 @@ class CartPole3DEnv(gym.Env): #class inherit from gym.Env.
     def set_action(self, action):
 
         # We convert the actions to speed movements to send to the parent class CubeSingleDiskEnv
-        if action == 0:  # Move Speed Wheel Forwards
-            self.roll_turn_speed = self.roll_speed_fixed_value
-        elif action == 1:  # Move Speed Wheel Backwards
-            self.roll_turn_speed = -1*self.roll_speed_fixed_value
-        elif action == 2:  # Stop Speed Wheel
-            self.roll_turn_speed = 0.0
-        elif action == 3:  # Increment Speed
-            self.roll_turn_speed += self.roll_speed_increment_value
-        elif action == 4:  # Decrement Speed
-            self.roll_turn_speed -= self.roll_speed_increment_value
+        if action == 0:  # Move left
+            self.cart_current_speed = self.cart_speed_fixed_value
+        elif action == 1:  # Move right
+            self.cart_current_speed = -1*self.cart_speed_fixed_value
 
         # We clamp Values to maximum
-        rospy.logdebug("roll_turn_speed before clamp==" + str(self.roll_turn_speed))
-        self.roll_turn_speed = numpy.clip(self.roll_turn_speed,
-                                          -1 * self.roll_speed_fixed_value,
-                                          self.roll_speed_fixed_value)
-        rospy.logdebug("roll_turn_speed after clamp==" + str(self.roll_turn_speed))
+        rospy.logdebug("cart_current_speed before clamp==" + str(self.cart_current_speed))
+        self.cart_current_speed = numpy.clip(self.cart_current_speed,
+                                          -1 * self.cart_speed_fixed_value,
+                                          self.cart_speed_fixed_value)
+        rospy.logdebug("cart_current_speed after clamp==" + str(self.cart_current_speed))
 
-        # We tell the OneDiskCube to spin the RollDisk at the selected speed
-        self.move_joints(self.roll_turn_speed)
+        self.move_joints(self.cart_current_speed)
 
     def _get_obs(self):
         """
@@ -184,42 +183,26 @@ class CartPole3DEnv(gym.Env): #class inherit from gym.Env.
         :return:
         """
 
-        # We get the orientation of the cube in RPY
-        roll, pitch, yaw = self.get_orientation_euler()
+        # We get the angle of the pole_angle
+        pole_angle = round(self.joints.position[1],3)
 
         # We get the distance from the origin
         y_distance = self.get_y_dir_distance_from_start_point(self.start_point)
 
-        # We get the current speed of the Roll Disk
-        current_disk_roll_vel = self.get_roll_velocity()
-
-        # We get the linear speed in the y axis
-        y_linear_speed = self.get_y_linear_speed()
+        # We get the current speed of the cart
+        current_cart_speed_vel = self.get_cart_velocity()
 
         cube_observations = [
-            round(current_disk_roll_vel, ),
+            round(current_cart_speed_vel, 1),
             round(y_distance, 1),
-            round(roll, 1),
-            round(pitch, 1),
-            round(y_linear_speed, 1),
-            round(yaw, 1),
+            round(pole_angle, 1)
         ]
 
         return cube_observations
 
-    def get_orientation_euler(self):
-        # We convert from quaternions to euler
-        orientation_list = [self.odom.pose.pose.orientation.x,
-                            self.odom.pose.pose.orientation.y,
-                            self.odom.pose.pose.orientation.z,
-                            self.odom.pose.pose.orientation.w]
-
-        roll, pitch, yaw = euler_from_quaternion(orientation_list)
-        return roll, pitch, yaw
-
-    def get_roll_velocity(self):
+    def get_cart_velocity(self):
         # We get the current joint roll velocity
-        roll_vel = self.joints.velocity[0]
+        roll_vel = self.joints.velocity[1]
         return roll_vel
 
     def get_y_linear_speed(self):
@@ -238,39 +221,55 @@ class CartPole3DEnv(gym.Env): #class inherit from gym.Env.
 
         return y_dist_dir
 
+    def get_pole_angle(self):
+        return self.imu.orientation.y
+
     def compute_reward(self, observations, done):
+        speed = observations[0]
+        distance = observations[1]
+        angle = observations[2]
 
-        if not done:
+        # if not done:
+        #     # positive for keeping the pole up
+        #     reward_keep_pole_up = self.keep_pole_up_reward
+        #     # nigative Reinforcement
+        #     reward_distance = distance * -2
+        #
+        #     # positive reward on angle
+        #     reward_angle = 10 / ((abs(angle) * 1)+1.1)
+        #
+        #     reward = reward_angle + reward_distance + reward_keep_pole_up
+        #
+        #     rospy.loginfo("Reward_distance=" + str(reward_distance))
+        #     rospy.loginfo("Reward_angle= " + str(reward_angle))
+        # else:
+        #     reward = -1 * self.end_episode_points
+        #
+        # return reward
+        # rospy.loginfo("pole_angle for reward==>" + str(angle))
+        delta = 0.7 - abs(angle)
+        reward_pole_angle = math.exp(delta*10)
 
-            y_distance_now = observations[1]
-            delta_distance = y_distance_now - self.current_y_distance
-            rospy.logdebug(
-                "y_distance_now=" + str(y_distance_now) + ", current_y_distance=" + str(self.current_y_distance))
-            rospy.logdebug("delta_distance=" + str(delta_distance))
-            reward_distance = delta_distance * self.move_distance_reward_weight
-            self.current_y_distance = y_distance_now
+        # If we are moving to the left and the pole is falling left is Bad
+        # rospy.logwarn("pole_vel==>" + str(speed))
+        pole_vel_sign = numpy.sign(speed)
+        pole_angle_sign = numpy.sign(angle)
+        # rospy.logwarn("pole_vel sign==>" + str(pole_vel_sign))
+        # rospy.logwarn("pole_angle sign==>" + str(pole_angle_sign))
 
-            y_linear_speed = observations[4]
-            rospy.logdebug("y_linear_speed=" + str(y_linear_speed))
-            reward_y_axis_speed = y_linear_speed * self.y_linear_speed_reward_weight
-
-            # Negative Reward for yaw different from zero.
-            yaw_angle = observations[5]
-            rospy.logdebug("yaw_angle=" + str(yaw_angle))
-            # Worst yaw is 90 and 270 degrees, best 0 and 180. We use sin function for giving reward.
-            sin_yaw_angle = math.sin(yaw_angle)
-            rospy.logdebug("sin_yaw_angle=" + str(sin_yaw_angle))
-            reward_y_axis_angle = -1 * abs(sin_yaw_angle) * self.y_axis_angle_reward_weight
-
-            # We are not intereseted in decimals of the reward, doesnt give any advatage.
-            reward = round(reward_distance, 0) + round(reward_y_axis_speed,0 ) + round(reward_y_axis_angle,0 )
-            rospy.logdebug("reward_distance=" + str(reward_distance))
-            rospy.logdebug("reward_y_axis_speed=" + str(reward_y_axis_speed))
-            rospy.logdebug("reward_y_axis_angle=" + str(reward_y_axis_angle))
-            rospy.logdebug("reward=" + str(reward))
+        # We want inverted signs for the speeds. We multiply by -1 to make minus positive.
+        # global_sign + = GOOD, global_sign - = BAD
+        base_reward = 500
+        if speed != 0:
+            global_sign = pole_angle_sign * pole_vel_sign * -1
+            reward_for_efective_movement = base_reward * global_sign
         else:
-            reward = -1 * self.end_episode_points
+            # Is a particular case. If it doesnt move then its good also
+            reward_for_efective_movement = base_reward
 
+        reward = reward_pole_angle + reward_for_efective_movement
+
+        # rospy.logwarn("reward==>" + str(reward)+"= r_pole_angle="+str(reward_pole_angle)+",r_movement= "+str(reward_for_efective_movement))
         return reward
 
     def joints_callback(self, data):
@@ -279,33 +278,35 @@ class CartPole3DEnv(gym.Env): #class inherit from gym.Env.
     def odom_callback(self, data):
         self.odom = data
 
+
     def check_all_sensors_ready(self):
         self.check_joint_states_ready()
         self.check_odom_ready()
+        # self.check_imu_ready()
         rospy.logdebug("ALL SENSORS READY")
 
     def check_joint_states_ready(self):
         self.joints = None
         while self.joints is None and not rospy.is_shutdown():
             try:
-                self.joints = rospy.wait_for_message("/my_moving_cube/joint_states", JointState, timeout=1.0)
+                self.joints = rospy.wait_for_message("/cart_pole_3d/joint_states", JointState, timeout=1.0)
                 # check response from this topic for 1 second. if don't received respone, it mean not ready.
                 # Assure data channels are working perfectly.
-                rospy.logdebug("Current my_moving_cube/joint_states READY=>" + str(self.joints))
+                rospy.logdebug("Current cart_pole_3d/joint_states READY=>" + str(self.joints))
 
             except:
-                rospy.logerr("Current my_moving_cube/joint_states not ready yet, retrying for getting joint_states")
+                rospy.logerr("Current cart_pole_3d/joint_states not ready yet, retrying for getting joint_states")
         return self.joints
 
     def check_odom_ready(self):
         self.odom = None
         while self.odom is None and not rospy.is_shutdown():
             try:
-                self.odom = rospy.wait_for_message("/my_moving_cube/odom", Odometry, timeout=1.0)
-                rospy.logdebug("Current /my_moving_cube/odom READY=>" + str(self.odom))
+                self.odom = rospy.wait_for_message("/cart_pole_3d/odom", Odometry, timeout=1.0)
+                rospy.logdebug("Current /cart_pole_3d/odom READY=>" + str(self.odom))
 
             except:
-                rospy.logerr("Current /my_moving_cube/odom not ready yet, retrying for getting odom")
+                rospy.logerr("Current /cart_pole_3d/odom not ready yet, retrying for getting odom")
 
         return self.odom
 
@@ -315,8 +316,8 @@ class CartPole3DEnv(gym.Env): #class inherit from gym.Env.
         :return:
         """
         rate = rospy.Rate(10)  # 10hz
-        while (self._roll_vel_pub.get_num_connections() == 0 and not rospy.is_shutdown()):
-            rospy.logdebug("No susbribers to _roll_vel_pub yet so we wait and try again")
+        while (self._cart_velocity_publisher.get_num_connections() == 0 and not rospy.is_shutdown()):
+            rospy.logdebug("No susbribers to _cart_velocity_publisher yet so we wait and try again")
             try:
                 rate.sleep()
             except rospy.ROSInterruptException:
@@ -326,40 +327,16 @@ class CartPole3DEnv(gym.Env): #class inherit from gym.Env.
 
         rospy.logdebug("All Publishers READY")
 
-    def move_joints(self, roll_speed):
+    def move_joints(self, cart_speed):
         joint_speed_value = Float64()
-        joint_speed_value.data = roll_speed
-        rospy.logdebug("Single Disk Roll Velocity>>" + str(joint_speed_value))
-        self._roll_vel_pub.publish(joint_speed_value)
-        self.wait_until_roll_is_in_vel(joint_speed_value.data)
-
-    def wait_until_roll_is_in_vel(self, velocity):
-
-        rate = rospy.Rate(10)
-        start_wait_time = rospy.get_rostime().to_sec()
-        end_wait_time = 0.0
-        epsilon = 0.1
-        v_plus = velocity + epsilon
-        v_minus = velocity - epsilon
-        while not rospy.is_shutdown():
-            joint_data = self.check_joint_states_ready()
-            roll_vel = joint_data.velocity[0]
-            rospy.logdebug("VEL=" + str(roll_vel) + ", ?RANGE=[" + str(v_minus) + "," + str(v_plus) + "]")
-            are_close = (roll_vel <= v_plus) and (roll_vel > v_minus)
-            if are_close:
-                rospy.logdebug("Reached Velocity!")
-                end_wait_time = rospy.get_rostime().to_sec()
-                break
-            rospy.logdebug("Not there yet, keep waiting...")
-            rate.sleep()
-        delta_time = end_wait_time - start_wait_time
-        rospy.logdebug("[Wait Time=" + str(delta_time) + "]")
-        return delta_time
+        joint_speed_value.data = cart_speed
+        # rospy.logwarn("cart Velocity >>>>>>>" + str(joint_speed_value))
+        self._cart_velocity_publisher.publish(joint_speed_value)
 
     def set_init_pose(self):
         """Sets the Robot in its init pose
         """
-        self.move_joints(self.init_roll_vel)
+        self.move_joints(self.init_cart_vel)
 
         return True
 
@@ -369,10 +346,10 @@ class CartPole3DEnv(gym.Env): #class inherit from gym.Env.
         In this case we only need the orientation of the cube and the speed of the disc.
         The distance doesnt condition at all the actions
         """
-        disk_roll_vel = observations[0]
-        y_linear_speed = observations[4]
-        yaw_angle = observations[5]
+        speed = observations[0]
+        distance = observations[1]
+        angle = observations[2]
 
-        state_converted = [disk_roll_vel, y_linear_speed, yaw_angle]
+        state_converted = [speed, distance, angle]
 
         return state_converted

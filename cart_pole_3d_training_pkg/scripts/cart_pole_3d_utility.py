@@ -31,10 +31,10 @@ class CartPole3DRLUtils(object):
         while self.cart_joints_data is None and not rospy.is_shutdown():
             try:
                 self.cart_joints_data = rospy.wait_for_message("/cart_pole_3d/joint_states", JointState, timeout=1.0)
-                rospy.loginfo("Current cart_pole_3d/joint_states READY=>" + str(self.cart_joints_data))
+                rospy.loginfo("Current /cart_pole_3d/joint_states READY=>" + str(self.cart_joints_data))
 
             except:
-                rospy.logerr("Current cart_pole_3d/joint_states not ready yet, retrying for getting joint_states")
+                rospy.logerr("Current /cart_pole_3d/joint_states not ready yet, retrying for getting joint_states")
 
         self.cart_odom_data = None
         while self.cart_odom_data is None and not rospy.is_shutdown():
@@ -43,7 +43,7 @@ class CartPole3DRLUtils(object):
                 rospy.loginfo("Current /cart_pole_3d/odom READY=>" + str(self.cart_odom_data))
 
             except:
-                rospy.logerr("Current /my_moving_cube/odom not ready yet, retrying for getting odom")
+                rospy.logerr("Current /cart_pole_3d/odom not ready yet, retrying for getting odom")
 
         self.cart_imu_data = None
         while self.cart_imu_data is None and not rospy.is_shutdown():
@@ -98,7 +98,8 @@ class CartPole3DRLUtils(object):
 
         roll, pitch, yaw = euler_from_quaternion(orientation_list)
 
-        pole_angle = self.imu.orientation.y
+        data = self.joints
+        pole_angle = round(data.position[0], 3)
         # We get the distance from the origin
         start_position = Point()
         start_position.x = 0.0
@@ -119,8 +120,8 @@ class CartPole3DRLUtils(object):
     def observation_checks(self, cube_state):
 
         # MAximum distance to travel permited in meters from origin
-        max_upper_distance = 0.7
-        max_lower_distance = -0.7
+        max_upper_distance = 0.5
+        max_lower_distance = -0.5
         max_angle_allowed = 0.2
 
         if (cube_state[1] > max_upper_distance or cube_state[1] < max_lower_distance):
@@ -176,19 +177,19 @@ def cube_rl_systems_test():
     cart_rl_utils_object = CartPole3DRLUtils()
 
     for i in range(10):
-        rospy.loginfo("Moving to Speed==>150")
-        cart_rl_utils_object.move_joints(cart_speed=150.0)
+        rospy.loginfo("Moving to Speed==>50")
+        cart_rl_utils_object.move_joints(cart_speed=50.0)
         time.sleep(0.5)
         rospy.loginfo("Moving to Speed==>-150")
-        cart_rl_utils_object.move_joints(cart_speed=-150.0)
+        cart_rl_utils_object.move_joints(cart_speed=-50.0)
         time.sleep(0.5)
-    rospy.loginfo("Moving to Speed==>0.0")
-    cart_rl_utils_object.move_joints(cart_speed=0.0)
-    time.sleep(2)
+        rospy.loginfo("Moving to Speed==>0.0")
+        cart_rl_utils_object.move_joints(cart_speed=0.0)
+        time.sleep(0.5)
 
-    cart_state = cart_rl_utils_object.get_cart_state()
-    done = cart_rl_utils_object.observation_checks(cart_state)
-    reward = cart_rl_utils_object.get_reward_for_observations(cart_state)
+        cart_state = cart_rl_utils_object.get_cart_state()
+        done = cart_rl_utils_object.observation_checks(cart_state)
+        reward = cart_rl_utils_object.get_reward_for_observations(cart_state)
 
     rospy.loginfo("Done==>" + str(done))
     rospy.loginfo("Reward==>" + str(reward))
